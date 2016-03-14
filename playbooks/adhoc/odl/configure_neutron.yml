@@ -1,0 +1,52 @@
+- name: Get ip odl
+  hosts: odl
+  gather_facts: yes
+  sudo: yes
+  tasks:
+      - set_fact: odl_address="{{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}"
+
+- name: Configure neutron to use opendaylight
+  hosts: controller
+  sudo: yes
+  tasks:
+    - name: set mechanism drivers
+      ini_file:
+          dest="/etc/neutron/plugins/ml2/ml2_conf.ini"
+          section="ml2"
+          option={{ item.option }}
+          value={{ item.value }}
+      with_items:
+          - { option: 'mechanism_drivers', value: 'opendaylight' }
+          - { option: 'tenant_network_types', value: 'vxlan' }
+
+    - name: Configure ODL controller URL in ML2 configuration
+      ini_file:
+          dest="/etc/neutron/plugins/ml2/ml2_conf.ini"
+          section="ml2_odl"
+          option='url'
+          value="http://{{ hostvars['odl'].odl_address  }}:8080/controller/nb/v2/neutron"
+
+    - name:  Configure User and Password of ODL controller in ML2 configuration
+      ini_file:
+          dest="/etc/neutron/plugins/ml2/ml2_conf.ini"
+          section="ml2_odl"
+          option={{ item.option }}
+          value={{ item.value }}
+          state=present
+      with_items:
+          - { option: 'password', value: 'admin' }
+          - { option: 'username', value: 'admin' }
+
+    - name: Configure neutron to use OpenDaylight L3
+      shell: >
+          sed -i "s/router,//g" /etc/neutron/neutron.conf;
+          egrep -q '^service_plugins.*networking_odl.l3.l3_odl.OpenDaylightL3RouterPlugin' /etc/neutron/neutron.conf || sed -i "/^service_plugins/s/$/,networking_odl.l3.l3_odl.OpenDaylightL3RouterPlugin/" /etc/neutron/neutron.conf
+
+    - name: Clean neutron ML2 database
+      shell: >
+          export db_connection=`sudo grep ^connection /etc/neutron/neutron.conf`;
+          export db_name=`echo $db_connection | rev | cut -d/ -f1  | rev | cut -d? -f1`;
+          sudo mysql -e "drop database if exists $db_name;";
+          sudo mysql -e "create database $db_name character set utf8;";
+          sudo mysql -e "grant all on $db_name.* to 'neutron'@'%';";
+          sudo neutron-db-manage --config-file /usr/share/neutron/neutron-dist.conf --config-file /etc/neutron/neutron.conf --config-file /etc/neutron/plugin.ini upgrade head

@@ -1,0 +1,38 @@
+---
+- name: Stop controller networking services
+  hosts: 
+    - controller
+  sudo: yes
+  tasks:
+    - name: Stop neutron-server
+      service: name=neutron-server
+               state=stopped
+
+- name: Stop networking services
+  hosts: 
+    - controller
+    - compute
+  sudo: yes
+  tasks:
+    - name: Stop neutron-openvswitch-agent
+      service: name=neutron-openvswitch-agent
+               state=stopped
+               enabled=no
+
+    - name: Stop openvswitch
+      service: name=openvswitch
+               state=stopped
+
+- name: Remove openvswitch logs and configuration
+  hosts: 
+    - controller
+    - compute
+  sudo: yes
+  tasks:
+     - name: Remove all switches except br-isolation
+       shell: ovs-vsctl  list-br | grep -v br-isolated | xargs -I% ovs-vsctl ovs-vsctl del-br %
+#    - name: Remove openvswitch logs
+#      command: "rm -rf /var/log/openvswitch/*"
+
+#    - name: Remove openvswitch configuration
+#      command: "rm -rf /etc/openvswitch/conf.db"
